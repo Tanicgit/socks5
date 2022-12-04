@@ -1,11 +1,69 @@
 #include "socks5.h"
 #include <list>
-#include<signal.h>
+#include <signal.h>
 #include <sys/stat.h>
+#include "threadpool.h"
+#include "log.h"
 
 
 using namespace std;
 void daemonrun(void);
+#if 0
+void task_free(void *p)
+{
+	LOG_TH("task_free(%d):\n",*(int *)p);	
+}
+
+void *task_func(void *p)
+{
+	int i=*(int *)p;
+	while(i--)
+	{
+		sleep(1);
+		LOG_TH("task_func(%d): i=%d\n",*(int *)p,i);
+	}
+	return NULL;
+}
+
+
+int main11(int argc,char *argv[])
+{
+	prctl(PR_SET_NAME, "MAIN");
+	int n = 20;
+	int task_func_parm[] = {4,5,6,7,8};
+	set_log_level(LOG_LEVELS_ALL);
+	ThreadPool *thp = new ThreadPool();
+	thp->Init(4);
+	sleep(1);
+	thp->addTask(task_func, task_func_parm,task_free,task_func_parm);
+	thp->addTask(task_func, task_func_parm+1,task_free,task_func_parm+1);
+	thp->addTask(task_func, task_func_parm+2,task_free,task_func_parm+2);
+	thp->addTask(task_func, task_func_parm+3,task_free,task_func_parm+3);
+
+	while(n--)
+	{		
+		sleep(5);
+		LOG_TH("main\n");
+	}
+
+	thp->addTask(task_func, task_func_parm+4,task_free,task_func_parm+4);
+	n=3;
+	while(n--)
+	{		
+		sleep(5);
+		LOG_TH("main\n");
+	}
+	LOG_TH("DELETE_P thp start\n");
+	DELETE_P(thp);
+	LOG_TH("DELETE_P thp end\n");
+	n=3;
+	while(n--)
+	{		
+		sleep(5);
+		LOG_TH("main\n");
+	}
+}
+#endif
 
 int main(int argc,char *argv[])
 {
@@ -67,14 +125,8 @@ int main(int argc,char *argv[])
 			printf("key=%s,value=%s,\n",key,value);
 			if(0==strcasecmp(key,"log_level"))
 			{
-				if(0==strcasecmp(value,"debug"))
-				{
-					set_log_level(LOG_LEVELS_DEBUG);				
-				}
-				else if(0==strcasecmp(value,"warn"))
-				{
-					set_log_level(LOG_LEVELS_WARN);
-				}
+				port = atoi(value);
+				set_log_level(port);
 			}
 			else if(0==strcasecmp(key,"disp_net_speed"))
 			{

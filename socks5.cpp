@@ -9,18 +9,32 @@ RFC 3089 A SOCKS-based IPv6/IPv4 Gateway Mechanism
 
 
 #include "socks5.h"
+#include <string>
 
 uint16_t g_cc_id=0;
 uint16_t g_cc_num=0;
 
 
 #define MAX_THREAD	256
-
+#if !ENABLE_THREAD_POOL
 int g_thread_num=0;
+#endif
 
 pthread_mutex_t cc_list_mut = PTHREAD_MUTEX_INITIALIZER;
 list<socks5channel*> g_channel_list;
 
+
+void LOG_BUF(string msg,uint8_t *data,int len)
+{
+	char buf[1024];
+	int i=0;
+	int  of = sprintf(buf,"%s",msg.c_str());
+	for(i=0;i<len && of<1024-2;i++)
+	{
+		of += sprintf(buf+of,"%02X ",data[i]);
+	}
+	LOG_DBG("%s\n",buf);	
+}
 
 void cc_list_add(socks5channel *cc)
 {
@@ -70,6 +84,9 @@ int readdata(int fd,uint8_t *r_buf,int len)
     } 
 }
 
+
+
+
 int methodUserPawwsd(socks5channel *cc)
 {
 	int nread;
@@ -81,7 +98,7 @@ int methodUserPawwsd(socks5channel *cc)
 	uint8_t passwd_len=0;
 	uint8_t ret=0;
 	nread = readdata(cc->used_to_client->fd,r_buf,256);
-	
+	LOG_BUF("<--",r_buf,nread);
 	if(nread<5)
 	{
 		ret = 1;
@@ -112,13 +129,13 @@ int methodUserPawwsd(socks5channel *cc)
 		goto exit_flag;
 	}
 
-	if(0!=memcpy(cc->cc_user,user,user_len))
+	if(0!=memcmp(cc->cc_user,user,user_len))
 	{
 		ret = 1;
 		goto exit_flag;
 	}
-	
-	if(0!=memcpy(cc->cc_passwd,passwd,passwd_len))
+
+	if(0!=memcmp(cc->cc_passwd,passwd,passwd_len))
 	{
 		ret = 1;
 		goto exit_flag;
@@ -128,6 +145,7 @@ int methodUserPawwsd(socks5channel *cc)
 	w_buf[0] = 1;
 	w_buf[1] = ret;
 	write(cc->used_to_client->fd,w_buf,2);
+	LOG_BUF("-->",w_buf,2);
 	return (ret==0)?0:-1;
 	 
 }
@@ -143,7 +161,7 @@ int EA_Init(socks5channel *cc)
    {
 	   return -1;
    }
-
+   LOG_BUF("<--",r_buf,nread);
    //1.加密认证方式协商
    if(r_buf[0] != 5)//版本5
    {
@@ -170,7 +188,7 @@ int EA_Init(socks5channel *cc)
    w_buf[0] = 5;
    w_buf[1] = select_method;
    write(cc->used_to_client->fd,w_buf,2);
-
+   LOG_BUF("-->",w_buf,2);
    if(select_method == 0)
    {
 	   //none	  
@@ -192,8 +210,8 @@ int EA_Init(socks5channel *cc)
    return 0;
 }
 
- int dns_func(const char *str_host, int *af,uint8_t addr[16])
- {
+int dns_func(const char *str_host, int *af,uint8_t addr[16])
+{
 	if (!str_host) return -1;
 
 	int h_err;
@@ -215,7 +233,7 @@ int EA_Init(socks5channel *cc)
 	*af = hbuf.h_addrtype;
 	taf = *af;
 	memcpy(addr,hbuf.h_addr_list[0],16);
-	
+
 	LOG_DBG("----------------------------------\n");
 		LOG_DBG("h_name=%s\n",hbuf.h_name);
 		LOG_DBG("h_addrtype=%d\n",hbuf.h_addrtype);
@@ -249,7 +267,7 @@ int EA_Init(socks5channel *cc)
 	LOG_DBG("----------------------------------\n");
 	#endif
 	return 0;
- }
+}
 
 
 int cmd_connet_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
@@ -380,7 +398,7 @@ int cmd_connet_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
 	}
 
 	write(cc->used_to_client->fd,w_buf,w_len);
-	
+	LOG_BUF("-->",w_buf,w_len);
 
 	setnonblock(cc->used_to_client->fd,1);
 	cc->used_to_client->ev.events = EPOLLIN|EPOLLET;
@@ -486,6 +504,7 @@ int cmd_bind_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
 	
 	//这里要返回给client第一次,主要是把监听端口告知 client
 	write(cc->used_to_client->fd,w_buf,w_len);
+	LOG_BUF("-->",w_buf,w_len);
 
 	int clifd;
     struct sockaddr_in6 v6_cliaddr;
@@ -549,7 +568,7 @@ int cmd_bind_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
 			return 2;
 		}
 		write(cc->used_to_client->fd,w_buf,w_len);
-
+		LOG_BUF("-->",w_buf,w_len);
 
 		cc->used_to_service->af = cliaddr->sa_family;
 		cc->used_to_service->fd = clifd;
@@ -588,7 +607,7 @@ int channel_init(socks5channel *cc)
   	{
 		return -1;
   	}
-	
+	LOG_BUF("<--",r_buf,nread);
 	if(r_buf[0] != 5)//版本5
 	{
 		ret = 1;
@@ -650,6 +669,7 @@ int channel_init(socks5channel *cc)
 	w_buf[1] = ret;
 	memcpy(w_buf+2,r_buf+2,nread-2);
 	write(cc->used_to_client->fd,w_buf,nread);
+	LOG_BUF("-->",r_buf,nread);
 	return -1;
 }
 
@@ -676,8 +696,10 @@ void * thread_main(void *parm)
 	}
 
 	exit_flag:
+	#if !ENABLE_THREAD_POOL
 	g_thread_num--;	
 	LOG_DBG("g_thread_num=%d\n",g_thread_num);
+	#endif
 	return NULL;
 }
 
@@ -706,7 +728,7 @@ void* thread_watch( void * param )
 }
 
 
-
+#if !ENABLE_THREAD_POOL
 int socks5Service::new_thread(socks5channel    *cc)
 {
 	int ret = 0;
@@ -732,7 +754,7 @@ int socks5Service::new_thread(socks5channel    *cc)
 	LOG_DBG("g_thread_num=%d\n",g_thread_num);
 	return 0;
 }
-
+#endif
 socks5Service::socks5Service()
 {
 	events_max_num = 512;
@@ -784,6 +806,7 @@ int socks5Service::init(uint16_t port,char ea_method,int flag)
     }
 
 	LOG_WAR("listen ok on %d\n",listen_port);
+	#if 0
 	if(flag>0)
 	{
 		pthread_t pid;
@@ -797,6 +820,13 @@ int socks5Service::init(uint16_t port,char ea_method,int flag)
 			return ret;
 		}
 		pthread_attr_destroy(&thread_attr);
+	}
+	#endif
+
+
+	if(thp.Init(10,5,80)<=0)
+	{
+		return -1;
 	}
 	return 0;
 }
@@ -923,6 +953,7 @@ int socks5Service::do_accpet()
 			DELETE_P(cc);
 			return 0;
 		}	
+		
     	cc->epollfd = epollfd;
 		cc->lastActTime = GetSysBootSeconds();
 
@@ -930,7 +961,11 @@ int socks5Service::do_accpet()
 		cc->used_to_client->ipv4addr = cliaddr;
 		cc->used_to_client->fd = clifd;
 		cc->used_to_client->type = COMMTYPE_WITH_CLIENT;
+		#if !ENABLE_THREAD_POOL
 		if(0==new_thread(cc))
+		#else
+		if(0==thp.addTask(thread_main, cc))
+		#endif
 		{
 			
 		}

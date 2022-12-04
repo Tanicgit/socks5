@@ -17,14 +17,18 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/tcp.h>
+#include <sys/prctl.h>
+
 
 
 #include "log.h"
-#include "socks5_util.h"
+#include "util.h"
 #include "rkfifo.h"
+#include "threadpool.h"
 using namespace std;
 
-#define DELETE_P(p)  do{if(p!=NULL){delete p;p=NULL;}}while(0);
+//使能线程池
+#define  ENABLE_THREAD_POOL	1
 
 #define ENABLE_IPV6	1
 
@@ -105,12 +109,12 @@ class socks5channel
 			bzero(cc_user,sizeof(cc_user));
 			bzero(cc_passwd,sizeof(cc_passwd));
 			id = (++g_cc_id)&0xffff;
-			LOG_DBG("cc_num=%d,open channel(%u)\n",++g_cc_num,id);
+			//LOG_DBG("cc_num=%d,open channel(%u)\n",++g_cc_num,id);
 		}
 		~socks5channel()
 		{
 			geterr();		
-			LOG_DBG("cc_num=%d,close channel(%u)c=%u,s=%u by [%04x]\n",--g_cc_num,id,used_to_client->fd,used_to_service->fd,errcode);
+			//LOG_DBG("cc_num=%d,close channel(%u)c=%u,s=%u by [%04x]\n",--g_cc_num,id,used_to_client->fd,used_to_service->fd,errcode);
 			colseAllcomm();
 			DELETE_P(used_to_client);
 			DELETE_P(used_to_service);
@@ -120,8 +124,7 @@ class socks5channel
 		{
 			EA_method = method;
 			if(user!=NULL)strncpy(cc_user,user,255);
-			if(passwd!=NULL)strncpy(cc_passwd,passwd,255);
-				
+			if(passwd!=NULL)strncpy(cc_passwd,passwd,255);	
 			used_to_client = new socks5comm(this,COMMTYPE_WITH_CLIENT);
 			if(used_to_client==NULL)return -1;
 			used_to_service = new socks5comm(this,COMMTYPE_WITH_SERVICE);
@@ -193,13 +196,15 @@ class socks5Service
 		void setUserPass(char * user,char *passwd)
 		{
 			if(user!=NULL)strncpy(ss_user,user,255);
-			if(passwd!=NULL)strncpy(ss_passwd,passwd,255);	
+			if(passwd!=NULL)strncpy(ss_passwd,passwd,255);		
 		}
 		int run();
 
 		friend void* thread_main( void * param );
 		friend void* thread_watch( void * param );
+		#if !ENABLE_THREAD_POOL
 		int new_thread(socks5channel    *cc);
+		#endif
 		void getNetBytes(uint32_t &u,uint32_t &d)
 		{
 			u = upBytes;
@@ -230,6 +235,9 @@ class socks5Service
 		//这不考虑多用户管理
 		char ss_user[256];//len(1~255)
 		char ss_passwd[256];//len(1~255)
+
+
+		ThreadPool thp;
 
 		
 };
