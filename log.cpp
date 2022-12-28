@@ -18,15 +18,16 @@ void my_log(int l, const char * fmt, ...)
 {
     va_list ap;
     time_t t;
+	char name[16]={0};
     struct tm * local;
     char s[1024],len;
     if(l & log_levels)
     {
+    	prctl(PR_GET_NAME, name);
         t = time(NULL);
         local = localtime(&t);
-        strftime(s,64,"[%Y-%m-%d %H:%M:%S] ",local);
-		
-        len = strlen(s);
+        len=strftime(s,64,"[%Y-%m-%d %H:%M:%S] ",local);
+		len += sprintf(s+len,"[%s]",name);
         va_start(ap,fmt);
             vsprintf(s+len,fmt,ap);
             fprintf(stdout,s,ap);

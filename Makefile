@@ -7,8 +7,8 @@ CFLAGS=-I./
 CPPFLAGS=-I./
 LDFLAGS=-L./
 #-Wall -fPIC -shared  -lrt
-
-LIBS= -lpthread -lrt
+#-lrt
+LIBS= -lpthread  -lrt
 STRIP=$(COMPLITE)strip
 
 #

@@ -125,7 +125,7 @@ int ThreadPool::Init(int th_num,int min_num,int max_num)
 	char name[16];
 	pthread_attr_t thread_attr;
 	pthread_attr_init(&thread_attr);  
-	pthread_attr_setstacksize(&thread_attr, 1024*1024);
+	pthread_attr_setstacksize(&thread_attr, 128*1024);
 	pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED);
 	if((ret=pthread_create(&tid, &thread_attr, ThreadPoolMain, this)) != 0 ) {
 		printf("pthread_create err %d\n",ret);
@@ -229,7 +229,7 @@ int ThreadTask::Init(char *name)
 	
 	pthread_attr_t thread_attr;
 	pthread_attr_init(&thread_attr);  
-	pthread_attr_setstacksize(&thread_attr, 1024*1024);
+	pthread_attr_setstacksize(&thread_attr, 256*1024);
 	pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED);
 	if((ret=pthread_create(&tid, &thread_attr, ThreadTaskMain, this)) != 0 ) {
 		printf("pthread_create err %d\n",ret);

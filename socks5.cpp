@@ -10,6 +10,9 @@ RFC 3089 A SOCKS-based IPv6/IPv4 Gateway Mechanism
 
 #include "socks5.h"
 #include <string>
+#include "/usr/include/net/if.h"
+#include "SafeModule.h"
+
 
 uint16_t g_cc_id=0;
 uint16_t g_cc_num=0;
@@ -56,6 +59,26 @@ int setsocketTimeout(int fd,int s)
 	return setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(struct timeval));
 }
 
+int bindDevice(int socket,string dev)
+{
+
+	if(dev.size()>0)
+	{
+		struct ifreq nif;
+		strcpy(nif.ifr_name, dev.c_str());
+		if (0!=setsockopt(socket, SOL_SOCKET, SO_BINDTODEVICE, (char *)&nif, sizeof(nif)))
+		{
+			close(socket);
+			printf("bind interface fail, errno: %d \r\n", errno);
+			return -1;		
+		}
+
+		printf("bind interface success \r\n");
+	}
+	return 0;
+}
+
+
 
 int readdata(int fd,uint8_t *r_buf,int len)
 {
@@ -85,6 +108,15 @@ int readdata(int fd,uint8_t *r_buf,int len)
 }
 
 
+
+uint8_t checkSum(uint8_t *p,int len)
+{
+	uint8_t a = 0;
+	while (len--)
+		a += *p++;
+
+	return a;
+}
 
 
 int methodUserPawwsd(socks5channel *cc)
@@ -150,20 +182,174 @@ int methodUserPawwsd(socks5channel *cc)
 	 
 }
 
-int EA_Init(socks5channel *cc)
+
+int method0x81(socks5channel *cc)
 {
-   int nread;
-   uint8_t r_buf[256];
-   uint8_t select_method=0XFF;
+	int nread;
+	uint8_t sum=0;
+	uint8_t r_buf[510];
+	uint8_t w_buf[2];
+	uint8_t key_tmp[16];
+	uint8_t ret=0;
+	nread = readdata(cc->used_to_client->fd,r_buf,256);
+	LOG_BUF("<--",r_buf,nread);
+	if(nread<5)
+	{
+		ret = 1;
+		goto exit_flag;
+	}
+
+	if(r_buf[0]!=5)
+	{
+		ret = 2;
+		goto exit_flag;
+
+	}
+
+	if(nread<19)
+	{
+		ret = 3;
+		goto exit_flag;
+	}
+
+	if(r_buf[1]!=16)
+	{
+		ret = 4;
+		goto exit_flag;
+	}
+
+	memcpy(key_tmp,r_buf+2,16);
+	sum = checkSum(r_buf,18);
+	if(sum != r_buf[18])
+	{
+		ret = 5;
+		goto exit_flag;
+
+	}
+
+	cc->used_to_client->sm.setKey(key_tmp);
+
+	exit_flag:
+	w_buf[0] = 5;
+	w_buf[1] = ret;
+	write(cc->used_to_client->fd,w_buf,2);
+	LOG_BUF("-->",w_buf,2);
+	return (ret==0)?0:-1;
+	 
+}
+
+
+int s4_Init(socks5channel *cc,uint8_t *r_buf,int nread)
+{
+	char errmsg[256];
+	uint8_t w_buf[10];
+	char ip_str[16];
+	int w_len = 0;
+	uint8_t err=0;
+	int syncnt = 0;
+	int ret=0;
+	int fd=0;
+	uint16_t port=0;
+	if(r_buf[1]==1)
+	{
+		cc->used_to_service->af = AF_INET;
+		cc->used_to_service->ipv4addr.sin_family = AF_INET;
+		uint8_t buf[4];
+		memcpy(buf,r_buf+4,4);
+		cc->used_to_service->ipv4addr.sin_addr.s_addr = *(in_addr_t *)buf;
+		cc->used_to_service->ipv4addr.sin_port = htons(r_buf[2]<<8 | r_buf[3]);
+
+		
+		fd = socket(AF_INET,SOCK_STREAM,0);
+		if(fd<0)
+		{
+			perror("[cmd connect] socket error:");
+			err = 0x5b;
+			goto exit_flag;
+		}
+		
+		syncnt = 4;
+		ret = setsockopt(fd, IPPROTO_TCP, TCP_SYNCNT, &syncnt, sizeof(syncnt));//1+2+4+8=15s超时
+		if(ret == -1)
+		{	
+			sprintf(errmsg,"[cmd connect]setsockopt TCP_SYNCNT err ");
+			perror(errmsg); 
+			err = 0x5b;
+			goto exit_flag;	
+		}
+		
+	
+		ret = bindDevice(fd,cc->interface);
+		if(ret <0)
+		{
+			printf(errmsg,"[cmd connect]bindDevice err ");
+			err = 0x5b;
+			goto exit_flag;
+		}					
+		
+		cc->used_to_service->fd = fd;	
+		sprintf(errmsg,"[cmd connect] connect [%s]:%d",inet_ntop(AF_INET,&cc->used_to_service->ipv4addr.sin_addr,ip_str,sizeof(ip_str)),ntohs(cc->used_to_service->ipv4addr.sin_port));
+		ret = connect(fd,(struct sockaddr *)&cc->used_to_service->ipv4addr,sizeof(struct sockaddr_in));
+		if(ret == -1)
+		{		
+			perror(errmsg); 
+			err = 0x5c;
+			goto exit_flag;	
+		}
+
+		err = 0x5a;
+		LOG_DBG("%s ok\n",errmsg);
+		
+		setnonblock(cc->used_to_client->fd,1);
+		cc->used_to_client->ev.events = EPOLLIN|EPOLLET;
+		cc->used_to_client->ev.data.ptr = cc->used_to_client;
+		if(0!=epoll_ctl(cc->epollfd,EPOLL_CTL_ADD,cc->used_to_client->fd,&cc->used_to_client->ev))
+		{
+			err = 0x5b;
+			goto exit_flag;
+		}
+	
+		setnonblock(cc->used_to_service->fd,1);
+		cc->used_to_service->ev.events = EPOLLIN|EPOLLET;
+		cc->used_to_service->ev.data.ptr = cc->used_to_service; 
+		if(0!=epoll_ctl(cc->epollfd,EPOLL_CTL_ADD,cc->used_to_service->fd,&cc->used_to_service->ev))
+		{
+			epoll_ctl(cc->epollfd,EPOLL_CTL_DEL,cc->used_to_client->fd,NULL);
+			err = 0x5b;
+			goto exit_flag;
+		}
+	
+		cc->lastActTime = GetSysBootSeconds();
+		
+		cc_list_add(cc);
+		
+		
+	
+	}
+	else if(r_buf[1]==2)
+	{
+		err = 0x5c;	
+	}
+
+	exit_flag:
+	w_buf[0] = 0;
+	w_buf[1] = err;
+	memcpy(w_buf+2,r_buf,6);
+	w_len = 8;
+	write(cc->used_to_client->fd,w_buf,w_len);
+	LOG_BUF("-->",w_buf,w_len);
+	return err==0x5a ? 0:-1;
+}
+int s5_Init(socks5channel *cc,uint8_t *r_buf,int nread)
+{
    
-   nread = readdata(cc->used_to_client->fd,r_buf,256);
-   if(nread<=0)
-   {
-	   return -1;
-   }
-   LOG_BUF("<--",r_buf,nread);
+   uint8_t select_method=0XFF;
+   uint8_t s_version=0;
+
+  
    //1.加密认证方式协商
-   if(r_buf[0] != 5)//版本5
+   s_version = r_buf[0];
+   if(s_version != 5)//版本5
    {
 	   return -1;
    }
@@ -177,13 +363,33 @@ int EA_Init(socks5channel *cc)
 
    uint8_t *methods = r_buf+2;
    for(int i=0;i<nmethods;i++)
-   {
-	   if(cc->EA_method == methods[i])
+   {	   
+	   if(cc->EA_method==0xff)//auto
 	   {
-		   select_method = methods[i];	   
-		   break;
+	   
+			if(methods[i]==0x81)
+			{
+				select_method = 0x81;
+			}  
+			else if(methods[i]==2)
+			{
+				select_method = 2;
+			}
+			else if(methods[i]==0)
+			{
+				select_method = 0;
+			}
+	   }
+	   else
+	   {
+		   if(cc->EA_method == methods[i])
+		  {
+			  select_method = methods[i];	  
+			  break;
+		  }
 	   }
    }
+   
    u_char w_buf[2];
    w_buf[0] = 5;
    w_buf[1] = select_method;
@@ -196,11 +402,17 @@ int EA_Init(socks5channel *cc)
    else if(select_method == 1)
    {
 		//GSSAPI
+		return -1;
    }
    else if(select_method == 2)
    {
 		//USER PASSWD
 		return methodUserPawwsd(cc);
+   }
+   else if(select_method == 0x81)
+   {
+		//
+		return method0x81(cc);
    }
    else
    {
@@ -288,7 +500,9 @@ int cmd_connet_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
 		af = AF_INET;
 		cc->used_to_service->af = AF_INET;
 		cc->used_to_service->ipv4addr.sin_family = AF_INET;
-		cc->used_to_service->ipv4addr.sin_addr.s_addr = *(in_addr_t *)(r_buf +4);
+		uint8_t tmp[4];
+		memcpy(tmp,r_buf +4,4);
+		cc->used_to_service->ipv4addr.sin_addr.s_addr = *(in_addr_t *)tmp;
 		uint8_t *p = r_buf + 4 + ip_addr_len;
 		cc->used_to_service->ipv4addr.sin_port = htons(p[0]<<8 | p[1]);
 	}
@@ -304,7 +518,7 @@ int cmd_connet_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
 			if(af == AF_INET)
 			{
 				cc->used_to_service->af = AF_INET;
-				cc->used_to_service->ipv4addr.sin_family = AF_INET;		
+				cc->used_to_service->ipv4addr.sin_family = AF_INET;	
 				cc->used_to_service->ipv4addr.sin_addr.s_addr = *(in_addr_t *)(addr);
 				uint8_t *p = r_buf + 5 + str_host_len;
 				cc->used_to_service->ipv4addr.sin_port = htons(p[0]<<8 | p[1]);
@@ -361,6 +575,17 @@ int cmd_connet_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
 		perror(errmsg);	
 		return 1;	
 	}
+	
+
+	ret = bindDevice(fd,cc->interface);
+	if(ret <0)
+	{
+		printf(errmsg,"[cmd connect]bindDevice err ");
+		return -1;
+	}	
+
+
+	
 
 	cc->used_to_service->fd = fd;
 	if(af == AF_INET)
@@ -403,12 +628,19 @@ int cmd_connet_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
 	setnonblock(cc->used_to_client->fd,1);
 	cc->used_to_client->ev.events = EPOLLIN|EPOLLET;
 	cc->used_to_client->ev.data.ptr = cc->used_to_client;
-	epoll_ctl(cc->epollfd,EPOLL_CTL_ADD,cc->used_to_client->fd,&cc->used_to_client->ev);
+	if(0!=epoll_ctl(cc->epollfd,EPOLL_CTL_ADD,cc->used_to_client->fd,&cc->used_to_client->ev))
+	{
+		return 1;
+	}
 
 	setnonblock(cc->used_to_service->fd,1);
 	cc->used_to_service->ev.events = EPOLLIN|EPOLLET;
 	cc->used_to_service->ev.data.ptr = cc->used_to_service;	
-	epoll_ctl(cc->epollfd,EPOLL_CTL_ADD,cc->used_to_service->fd,&cc->used_to_service->ev);
+	if(0!=epoll_ctl(cc->epollfd,EPOLL_CTL_ADD,cc->used_to_service->fd,&cc->used_to_service->ev))
+	{
+		epoll_ctl(cc->epollfd,EPOLL_CTL_DEL,cc->used_to_client->fd,NULL);
+		return 1;
+	}
 
 	cc->lastActTime = GetSysBootSeconds();
 	return 0;
@@ -440,6 +672,13 @@ int cmd_bind_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
         return 1;
     }
 
+	ret = bindDevice(fd,cc->interface);
+	if(ret <0)
+	{
+		printf("[cmd bind]bindDevice err ");
+		return -1;
+	}
+
 
 	struct sockaddr_in  ipv4addr;
 	struct sockaddr_in6  ipv6addr;
@@ -456,6 +695,12 @@ int cmd_bind_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
 		w_buf[3] = IP_TYPE_V4;
 		memcpy(w_buf+4,&ipv4addr.sin_addr.s_addr,4);					
 		ret = bind(fd,(const sockaddr*)&ipv4addr, sizeof(struct sockaddr_in));
+		if ( ret== -1)
+	    {
+	        perror("[cmd bind] bind error:");
+			close(fd);
+	        return 1;
+	    }
 
 		uint16_t port = ntohs(ipv4addr.sin_port);
 		w_buf[8] = port >>8;
@@ -473,7 +718,13 @@ int cmd_bind_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
 		w_buf[3] = IP_TYPE_V6;
 		memcpy(w_buf+4,&ipv6addr.sin6_addr,16);
 		ret = bind(fd,(const sockaddr*)&ipv6addr, sizeof(struct sockaddr_in6));
-
+		if ( ret== -1)
+	    {
+	        perror("[cmd bind] bind error:");
+			close(fd);
+	        return 1;
+	    }
+			
 		uint16_t port = ntohs(ipv6addr.sin6_port);
 		w_buf[20] = port >>8;
 		w_buf[21] = port &0xff;
@@ -487,14 +738,7 @@ int cmd_bind_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
 		return 8;	
 	}
 	
-	if ( ret== -1)
-    {
-        perror("[cmd bind] bind error:");
-		close(fd);
-        return 1;
-    }
 
-	
 	if(0!=listen(fd, 1))
     {
         perror("[cmd bind] listen error:");
@@ -577,12 +821,19 @@ int cmd_bind_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
 		setnonblock(cc->used_to_client->fd,1);
 		cc->used_to_client->ev.events = EPOLLIN|EPOLLET;
 		cc->used_to_client->ev.data.ptr = cc->used_to_client;
-		epoll_ctl(cc->epollfd,EPOLL_CTL_ADD,cc->used_to_client->fd,&cc->used_to_client->ev);
+		if(0!=epoll_ctl(cc->epollfd,EPOLL_CTL_ADD,cc->used_to_client->fd,&cc->used_to_client->ev))
+		{
+			return 1;
+		}
 
 		setnonblock(cc->used_to_service->fd,1);
 		cc->used_to_service->ev.events = EPOLLIN|EPOLLET;
 		cc->used_to_service->ev.data.ptr = cc->used_to_service; 
-		epoll_ctl(cc->epollfd,EPOLL_CTL_ADD,cc->used_to_service->fd,&cc->used_to_service->ev);
+		if(0!=epoll_ctl(cc->epollfd,EPOLL_CTL_ADD,cc->used_to_service->fd,&cc->used_to_service->ev))
+		{
+			epoll_ctl(cc->epollfd,EPOLL_CTL_DEL,cc->used_to_client->fd,NULL);
+			return 1;
+		}
 
 		cc->lastActTime = GetSysBootSeconds();
 		return 0;	
@@ -590,7 +841,7 @@ int cmd_bind_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
 }
 
 int cmd_udp_pro(socks5channel *cc,uint8_t atype,uint8_t *r_buf)
-{
+{	
 	return 7;
 }
 
@@ -679,20 +930,39 @@ void * thread_main(void *parm)
 	//prctl(PR_SET_NAME, t->name);
 	socks5channel *cc = (socks5channel*) parm;
 
-	if(EA_Init(cc)!=0)
+	uint8_t r_buf[256];
+	int  nread = readdata(cc->used_to_client->fd,r_buf,256);
+	if(nread<=0)
 	{
-		DELETE_P(cc);
-		goto exit_flag;
+	   goto exit_flag;
 	}
+	LOG_BUF("<--",r_buf,nread);
+	if(r_buf[0]==5)
+	{
 
-	if(channel_init(cc)!=0)
-	{
-		DELETE_P(cc);
-		goto exit_flag;
+		if(s5_Init(cc,r_buf,nread)!=0)
+		{
+			DELETE_P(cc);
+			goto exit_flag;
+		}
+
+		if(channel_init(cc)!=0)
+		{
+			DELETE_P(cc);
+			goto exit_flag;
+		}
+		else
+		{
+			goto exit_flag;
+		}
 	}
-	else
+	else if(r_buf[0]==4)
 	{
-		goto exit_flag;
+		if(s4_Init(cc,r_buf,nread)!=0)
+		{
+			DELETE_P(cc);
+			goto exit_flag;
+		}
 	}
 
 	exit_flag:
@@ -757,9 +1027,9 @@ int socks5Service::new_thread(socks5channel    *cc)
 #endif
 socks5Service::socks5Service()
 {
-	events_max_num = 512;
-	fdsize = 1024;
-	listen_port = 1236;
+	events_max_num = 64;
+	fdsize = 128;//kernel > 2.6.8,fdsize gather 0 is ok.
+	listen_port = 2038;
 
 	upBytes = 0;
 	downBytes = 0;
@@ -773,14 +1043,18 @@ socks5Service::~socks5Service()
 
 }
 
-
-int socks5Service::init(uint16_t port,char ea_method,int flag)
+int socks5Service::init(uint16_t port,string c,string s,uint8_t ea_method,int flag)
 {
 	int ret = 0;
 	struct sockaddr_in servaddr;
+
+	
 	listen_port = port;
 
 	EA_method = ea_method;
+
+	c_interface = c;
+	s_interface = s;
 	
 	listenfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (listenfd == -1)
@@ -788,6 +1062,13 @@ int socks5Service::init(uint16_t port,char ea_method,int flag)
         perror("socket error:");
         return -1;
     }
+
+	
+	ret = bindDevice(listenfd,c_interface);
+	if(ret <0)
+	{
+		return -1;
+	}	
 	
 	bzero(&servaddr, sizeof(servaddr));
 	servaddr.sin_family = AF_INET;
@@ -806,7 +1087,7 @@ int socks5Service::init(uint16_t port,char ea_method,int flag)
     }
 
 	LOG_WAR("listen ok on %d\n",listen_port);
-	#if 0
+	#if 1
 	if(flag>0)
 	{
 		pthread_t pid;
@@ -824,7 +1105,7 @@ int socks5Service::init(uint16_t port,char ea_method,int flag)
 	#endif
 
 
-	if(thp.Init(10,5,80)<=0)
+	if(thp.Init(10,10,50)<=0)
 	{
 		return -1;
 	}
@@ -946,7 +1227,7 @@ int socks5Service::do_accpet()
 			return 0;
 		}
 
-		if(cc->init(EA_method,ss_user,ss_passwd)!=0)
+		if(cc->init(EA_method,s_interface,ss_user,ss_passwd)!=0)
 		{
 			close(clifd);
 			LOG_WAR("socks5channel() init error\n");
@@ -991,6 +1272,8 @@ int socks5Service::writehandler(socks5comm *c_w,int epollfd)
 		{
 			break;//fifo没数据
 		}
+
+		c_w->sm.encryp(buff, nwrite);
 		
 		int w_len = write(c_w->fd,buff,nwrite);
 		if(w_len<0)
@@ -1077,6 +1360,8 @@ int socks5Service::readhandler(socks5comm *c_r,rkfifo &fifo)
 	    }
 	    else
 	    {	
+	    	c_r->sm.decrypt(buff, r_len);
+			
 	    	all_r_len += r_len;
 			fifo.rkfifo_in(buff,r_len);	
 			if(to_r_len>r_len)//kernel read buf empty

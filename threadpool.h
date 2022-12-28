@@ -42,7 +42,7 @@ class ThreadTask{
 		bool ThreadIdleTooLong(uint32_t now,uint32_t timeout)
 		{	
 			LOG_TH("ThreadIdleTooLong now=%d,last=%d,%d\n",now,last_idle_tick,timeout);
-			if(status == STS_IDLE)
+			if(status == STS_IDLE&&last_idle_tick!=0)
 			{
 				if(now - last_idle_tick > timeout)
 				{

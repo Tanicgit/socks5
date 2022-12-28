@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <netinet/tcp.h>
 #include <sys/prctl.h>
+#include <string>
 
 
 
@@ -25,12 +26,14 @@
 #include "util.h"
 #include "rkfifo.h"
 #include "threadpool.h"
+#include "SafeModule.h"
+
 using namespace std;
 
 //使能线程池
 #define  ENABLE_THREAD_POOL	1
 
-#define ENABLE_IPV6	1
+#define ENABLE_IPV6	0
 
 #define    COMMTYPE_UNKNOW 0
 #define	   COMMTYPE_WITH_CLIENT 1
@@ -91,6 +94,7 @@ class socks5comm
 	uint8_t err_code;
 	struct epoll_event ev;
 	rkfifo w_fifo;
+	SafeModule sm;
 	
 };
 
@@ -120,7 +124,7 @@ class socks5channel
 			DELETE_P(used_to_service);
 		}
 
-		int init(char method,char * user=NULL,char *passwd=NULL)
+		int init(uint8_t method,string nif,char * user=NULL,char *passwd=NULL)
 		{
 			EA_method = method;
 			if(user!=NULL)strncpy(cc_user,user,255);
@@ -129,6 +133,8 @@ class socks5channel
 			if(used_to_client==NULL)return -1;
 			used_to_service = new socks5comm(this,COMMTYPE_WITH_SERVICE);
 			if(used_to_service==NULL)return -1;
+
+			interface = nif;
 			return 0;
 		}
 
@@ -179,9 +185,11 @@ class socks5channel
 
 		uint32_t lastActTime;
 		int epollfd;
-		char EA_method;//0
+		uint8_t EA_method;//0
 		uint16_t  id;
 		uint16_t errcode;
+		string interface;
+	
 
 };
 
@@ -192,7 +200,7 @@ class socks5Service
 		socks5Service();
 		~socks5Service();
 
-		int init(uint16_t port,char method,int flag);	
+		int init(uint16_t port,string c,string s,uint8_t method,int flag);	
 		void setUserPass(char * user,char *passwd)
 		{
 			if(user!=NULL)strncpy(ss_user,user,255);
@@ -223,7 +231,10 @@ class socks5Service
 		int listenfd;
 		int epollfd;
 
-		char EA_method;//0
+		string c_interface;
+		string s_interface;
+
+		uint8_t EA_method;//0
 
 		int events_max_num;
 		int fdsize;
@@ -238,6 +249,7 @@ class socks5Service
 
 
 		ThreadPool thp;
+		
 
 		
 };

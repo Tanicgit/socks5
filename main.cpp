@@ -8,63 +8,6 @@
 
 using namespace std;
 void daemonrun(void);
-#if 0
-void task_free(void *p)
-{
-	LOG_TH("task_free(%d):\n",*(int *)p);	
-}
-
-void *task_func(void *p)
-{
-	int i=*(int *)p;
-	while(i--)
-	{
-		sleep(1);
-		LOG_TH("task_func(%d): i=%d\n",*(int *)p,i);
-	}
-	return NULL;
-}
-
-
-int main11(int argc,char *argv[])
-{
-	prctl(PR_SET_NAME, "MAIN");
-	int n = 20;
-	int task_func_parm[] = {4,5,6,7,8};
-	set_log_level(LOG_LEVELS_ALL);
-	ThreadPool *thp = new ThreadPool();
-	thp->Init(4);
-	sleep(1);
-	thp->addTask(task_func, task_func_parm,task_free,task_func_parm);
-	thp->addTask(task_func, task_func_parm+1,task_free,task_func_parm+1);
-	thp->addTask(task_func, task_func_parm+2,task_free,task_func_parm+2);
-	thp->addTask(task_func, task_func_parm+3,task_free,task_func_parm+3);
-
-	while(n--)
-	{		
-		sleep(5);
-		LOG_TH("main\n");
-	}
-
-	thp->addTask(task_func, task_func_parm+4,task_free,task_func_parm+4);
-	n=3;
-	while(n--)
-	{		
-		sleep(5);
-		LOG_TH("main\n");
-	}
-	LOG_TH("DELETE_P thp start\n");
-	DELETE_P(thp);
-	LOG_TH("DELETE_P thp end\n");
-	n=3;
-	while(n--)
-	{		
-		sleep(5);
-		LOG_TH("main\n");
-	}
-}
-#endif
-
 int main(int argc,char *argv[])
 {
 	int opt=0;
@@ -75,10 +18,13 @@ int main(int argc,char *argv[])
 	char user[256]="test";
 	char passwd[256]="test";
 	char configfile[1024]="socks5.conf";
+	string c;
+	string s;
+	char tmp[256]={0};
 
 	set_log_level(LOG_LEVELS_WARN);
 	
-	const char *optstr="f:";
+	const char *optstr="f:c:s:";
 	while ( (opt = getopt( argc, argv, optstr)) != -1 )
 	{
 		switch (opt)
@@ -89,8 +35,22 @@ int main(int argc,char *argv[])
 				printf("configfile=%s\n",configfile);
 			break;
 
+			case 'c':
+				strcpy(tmp,optarg);
+				c = tmp;
+				printf("c_interface=%s\n",c.c_str());
+			break;
+
+			case 's':
+				strcpy(tmp,optarg);
+				s = tmp;
+				printf("s_interface=%s\n",s.c_str());
+			break;
+
 			default:
 				printf("f:set configfile\n");
+				printf("c:used to listen client\n");
+				printf("s:used to connect app-service\n");
 				break;
 		}
 	}
@@ -165,6 +125,8 @@ int main(int argc,char *argv[])
 		}
 		fclose(fd);
 	}
+
+	printf("ea_method=%d\n",ea_method);
 	
 
 
@@ -172,7 +134,7 @@ int main(int argc,char *argv[])
 	
 	socks5Service s5;
 	char method = (char)ea_method;
-	if(0==s5.init(port,method,flag))
+	if(0==s5.init(port,c,s,method,flag))
 	{
 		s5.setUserPass(user,passwd);
 		s5.run();
