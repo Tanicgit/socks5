@@ -1,16 +1,19 @@
 #COMPLITE=arm-none-linux-gnueabi-
 
-CC=$(COMPLITE)gcc
-CXX=$(COMPLITE)g++
-LD=$(COMPLITE)ld
-CFLAGS=-I./
-CPPFLAGS=-I./
-LDFLAGS=-L./
+#CC=$(COMPLITE)gcc
+#CXX=$(COMPLITE)g++
+#LD=$(COMPLITE)ld
+#CFLAGS=-I./
+#CPPFLAGS=-I./
+#LDFLAGS=-L./
+
 #-Wall -fPIC -shared  -lrt
 #-lrt
 LIBS= -lpthread  -lrt
 STRIP=$(COMPLITE)strip
 
+bindir=/usr/bin
+configdir=/etc/socks5
 #
 BUILD=build
 CPP_FILES := $(wildcard *.cpp)
@@ -42,3 +45,8 @@ $(C_OBJFILE) : $(BUILD)/%.o:%.c
 clean:
 	rm -f $(CPP_OBJFILE) $(C_OBJFILE) $(bin)
 	rm -f $(BUILD)/*
+	
+install:
+        install -d ${DESTDIR}${bindir}  ${DESTDIR}${configdir}
+        install -m 755 ${bin} ${DESTDIR}${bindir}
+		install -m 655 socks5.conf ${DESTDIR}${configdir}

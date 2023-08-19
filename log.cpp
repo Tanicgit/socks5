@@ -48,7 +48,7 @@ void my_log2(int l, const char * fmt, ...)
     {
     	prctl(PR_GET_NAME, name);
 		clock_gettime( CLOCK_MONOTONIC, &ts );
-		sprintf(s,"[%u %s]",ts.tv_sec-g_ts.tv_sec,name);
+		sprintf(s,"[%ld %s]",ts.tv_sec-g_ts.tv_sec,name);
 		
         len = strlen(s);
         va_start(ap,fmt);

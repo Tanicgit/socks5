@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include "threadpool.h"
 #include "log.h"
+#include "tConfigFile.h"
 
 
 using namespace std;
@@ -11,132 +12,94 @@ void daemonrun(void);
 int main(int argc,char *argv[])
 {
 	int opt=0;
-	int back=0;
-	int flag=0;
-	int ea_method = 2;
-	int port = 5038;
-	char user[256]="test";
-	char passwd[256]="test";
-	char configfile[1024]="socks5.conf";
-	string c;
-	string s;
+	string configfile="socks5.conf";
 	char tmp[256]={0};
 
 	set_log_level(LOG_LEVELS_WARN);
 	
-	const char *optstr="f:c:s:";
+	const char *optstr="f:";
 	while ( (opt = getopt( argc, argv, optstr)) != -1 )
 	{
 		switch (opt)
 		{
 
 			case 'f':
-				strcpy(configfile,optarg);
-				printf("configfile=%s\n",configfile);
-			break;
-
-			case 'c':
-				strcpy(tmp,optarg);
-				c = tmp;
-				printf("c_interface=%s\n",c.c_str());
-			break;
-
-			case 's':
-				strcpy(tmp,optarg);
-				s = tmp;
-				printf("s_interface=%s\n",s.c_str());
+				configfile=optarg;
 			break;
 
 			default:
-				printf("f:set configfile\n");
-				printf("c:used to listen client\n");
-				printf("s:used to connect app-service\n");
 				break;
 		}
 	}
 
-
-	FILE *fd = fopen(configfile,"r");
-	if(fd!=NULL)
+	tConfigFile  tcf(configfile);
+	string value;
+	
+	int log_mask=0;
+	if(tcf.get("main","log_mask",value))
 	{
-		char line[1024];
-		while(fgets(line,1023,fd )!=NULL)
-		{
-			line[1023] = 0;
-			
-			if (line[0] == '#')
-			{
-				continue;
-			}
-			
-			char *key=eatHeadTailSpaceChr(line);
-			char *value=strchr(key+1,'=');
-
-			if(value == NULL)
-			{
-				continue;
-			}
-			value[0] = 0;
-			value++;
-
-			key = eatHeadTailSpaceChr(key);
-			value = eatHeadTailSpaceChr(value);
-
-			printf("key=%s,value=%s,\n",key,value);
-			if(0==strcasecmp(key,"log_level"))
-			{
-				port = atoi(value);
-				set_log_level(port);
-			}
-			else if(0==strcasecmp(key,"disp_net_speed"))
-			{
-				if(0==strcasecmp(value,"yes"))
-				{
-					flag=1;
-				}
-			}
-			else if(0==strcasecmp(key,"listenport"))
-			{			
-				port = atoi(value);
-			}
-			else if(0==strcasecmp(key,"ea_method"))
-			{			
-				ea_method = atoi(value);// 0 1 2
-			}
-			else if(0==strcasecmp(key,"enable_daemon"))
-			{			
-				
-				if(0==strcasecmp(value,"yes"))
-				{
-					back = 1;
-				}
-			}
-			else if(0==strcasecmp(key,"user"))
-			{						
-				strncpy(user,value,255);
-				user[255]=0;
-			}
-			else if(0==strcasecmp(key,"passwd"))
-			{						
-				strncpy(passwd,value,255);
-				passwd[255]=0;
-			}
-			
-		}
-		fclose(fd);
+		log_mask = atoi(value.c_str());
+		set_log_level(log_mask);
 	}
 
-	printf("ea_method=%d\n",ea_method);
+	int enable_netspeed_dis=0;
+	if(tcf.get("main","enable_netspeed_display",value))
+	{
+		enable_netspeed_dis = atoi(value.c_str());
+	}
 	
+	int listenport=5038;
+	if(tcf.get("main","listenport",value))
+	{
+		listenport = atoi(value.c_str());
+	}
+
+	int ea_method=0;
+	if(tcf.get("main","ea_method",value))
+	{
+		ea_method = atoi(value.c_str());
+	}
+
+	int enable_daemon=1;
+	if(tcf.get("main","enable_daemon",value))
+	{
+		enable_daemon = atoi(value.c_str());
+	}
+
+	string user="test";
+	if(tcf.get("main","user",value))
+	{
+		user = value;
+	}
+
+	string passwd="test";
+	if(tcf.get("main","passwd",value))
+	{
+		passwd = value;
+	}
+
+	string socks5_client_phy_dev="";
+	if(tcf.get("main","socks5_client_phy_dev",value))
+	{
+		socks5_client_phy_dev = value;
+	}
+
+	
+	string remote_service_phy_dev="";
+	if(tcf.get("main","remote_service_phy_dev",value))
+	{
+		remote_service_phy_dev = value;
+	}
 
 
-	if(back)daemonrun();
+
+	if(enable_daemon)daemonrun();
 	
 	socks5Service s5;
 	char method = (char)ea_method;
-	if(0==s5.init(port,c,s,method,flag))
+	if(0==s5.init(listenport,socks5_client_phy_dev,remote_service_phy_dev,ea_method,enable_netspeed_dis))
 	{
-		s5.setUserPass(user,passwd);
+		s5.setUserPass(user.c_str(),passwd.c_str());
 		s5.run();
 	}
 	return -1;

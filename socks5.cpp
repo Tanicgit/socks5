@@ -1087,7 +1087,7 @@ int socks5Service::init(uint16_t port,string c,string s,uint8_t ea_method,int fl
     }
 
 	LOG_WAR("listen ok on %d\n",listen_port);
-	#if 1
+	
 	if(flag>0)
 	{
 		pthread_t pid;
@@ -1102,7 +1102,7 @@ int socks5Service::init(uint16_t port,string c,string s,uint8_t ea_method,int fl
 		}
 		pthread_attr_destroy(&thread_attr);
 	}
-	#endif
+	
 
 
 	if(thp.Init(10,10,50)<=0)

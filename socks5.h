@@ -200,8 +200,8 @@ class socks5Service
 		socks5Service();
 		~socks5Service();
 
-		int init(uint16_t port,string c,string s,uint8_t method,int flag);	
-		void setUserPass(char * user,char *passwd)
+		int init(uint16_t port,string c,string s,uint8_t method,int flag=0);	
+		void setUserPass(const char * user,const char *passwd)
 		{
 			if(user!=NULL)strncpy(ss_user,user,255);
 			if(passwd!=NULL)strncpy(ss_passwd,passwd,255);		
