@@ -1,3 +1,11 @@
+/**
+æ„é€ å‡½æ•°å®Œæˆäº†æ–‡ä»¶çš„è§£æ,å¹¶æŠŠå†…å®¹ä¿å­˜åœ¨mapä¸­
+ææ„æ—¶ä¼šé‡æ–°æŠŠmapå†™å›æ–‡ä»¶
+APIåªå®æ—¶é’ˆå¯¹mapä¿®æ”¹
+æ„å‘³ç€:å¤šçº¿ç¨‹è¿›ç¨‹æ“ä½œä¸åŠ é”å¯èƒ½ä¼šæœ‰æ„å¤–çš„ç»“æœ,å³ä¸å¯å¤šçº¿ç¨‹æ“ä½œåŒä¸€æ–‡ä»¶
+
+æ”¯æŒ#å¼€å¤´çš„æ³¨é‡Š
+*/
 #include "tConfigFile.h"
 
 //#define LOG(a) cout << (a) <<endl
@@ -5,15 +13,15 @@
 
 
 /*
-str_is_file: ture,strÊÇÎÄ¼şÃû;false,str·ñÔòÊÇ×Ö·û´®
+str_is_file: ture,stræ˜¯æ–‡ä»¶å;false,strå¦åˆ™æ˜¯å­—ç¬¦ä¸²
 */
-tConfigFile::tConfigFile(string str,bool readOnly,bool str_is_file)
+tConfigFile::tConfigFile(string str,int mode,bool str_is_file)
 {
 	
 	file_change = false;
     coinfig_is_file = str_is_file;
 	configs.clear();
-	ro = readOnly;
+	fmode = mode;
 	if(str_is_file)
 	{
         fileName =  str;
@@ -28,14 +36,14 @@ tConfigFile::tConfigFile(string str,bool readOnly,bool str_is_file)
 
 tConfigFile::~tConfigFile()
 {
-	if(file_change&&coinfig_is_file&&(!ro))
+	if(file_change&&coinfig_is_file&&fmode==TF_READWRITE)
 	{
 		file_change = false;
 		SaveToFile();
 	}
 }
 
-string &tConfigFile::trim(string &str,const string &chars=" \r\t")
+string &tConfigFile::trim(string &str,const string &chars=" \r\n\t")
 {
         string map(0xFF, 0); 
         for (unsigned int i=0;i<chars.size();i++) 
@@ -50,10 +58,11 @@ string &tConfigFile::trim(string &str,const string &chars=" \r\t")
 bool tConfigFile::Parse(basic_istream<char> &ss)
 {
         configs.clear();
-        map<string,ValueInfo> config;
-        string name;
-        ValueInfo vi;
-
+        list<tCF_KeyValue> l_kv; 
+		tCF_KeyValue kv;
+		tCF_ConfKv  conf;
+		
+		string name;
         string line;
         while(getline(ss,line))
         {
@@ -63,17 +72,20 @@ bool tConfigFile::Parse(basic_istream<char> &ss)
                 
                 if(line[0]=='[')
                 {
-                	unsigned int  a =  line.find(']');
+                	size_t  a =  line.find(']');
 						
                 	if(a != string::npos)
                 	{
 						if(!name.empty())
-					   {
-							   configs[name] = config;
+					   {	
+					   		conf.key = name;
+							conf.value = l_kv;
+							configs.push_back(conf);	
 					   }
 					   
 					   name.clear();
-					   config.clear();
+					   l_kv.clear();
+					   conf.value.clear();
 
 					   string tmp = line.substr(1,a-1);
 					   trim(tmp);
@@ -86,13 +98,13 @@ bool tConfigFile::Parse(basic_istream<char> &ss)
 					   }
 					   else
 					   {
-							 //[] Îª¿ÕµÄĞĞ¶ªÆú
+							 //[] ä¸ºç©ºçš„è¡Œä¸¢å¼ƒ
 					   }
 
 					}    
 					else
 					{
-						// µ¥[¿ªÍ·µÄĞĞÖ±½Ó¶ªÆú
+						// å•[å¼€å¤´çš„è¡Œç›´æ¥ä¸¢å¼ƒ
 						
 					}
                 }
@@ -100,42 +112,40 @@ bool tConfigFile::Parse(basic_istream<char> &ss)
                 {       
                         if(!name.empty())
                         {    
-                              
-                                if(line[0]=='#')
-                                {   
-                                      vi.info.push_back(line.substr(1)); 
-                                      LOG("info=[" + line.substr(1) + "]");                           
-                                }
-                                else                        
+                                                                                   
+                            size_t a = line.find('=');
+                            if(a != string::npos)
+                            {
+                                   
+                                    kv.key = line.substr(0,a);
+                                    kv.value = line.substr(a+1);
+                                    trim(kv.key);
+                                    trim(kv.value);
+                                    if(!kv.key.empty())
+                                    {
+                                        l_kv.push_back(kv);
+                                    }  
+                            }  
+							else
+							{
+								kv.key = line;
+                                kv.value = "";
+                                trim(kv.key);
+                                trim(kv.value);
+                                if(!kv.key.empty())
                                 {
-                                        unsigned int a = line.find('=');
-                                        if(a != string::npos)
-                                        {
-                                               
-                                                string key = line.substr(0,a);
-                                                string value = line.substr(a+1);
-                                                trim(key);
-                                                trim(value);
-                                                if(!key.empty())
-                                                {
-                                                        vi.value = value;
-                                                        config[key] = vi;
-                                                        LOG("name=[" + key + "]");
-                                                        LOG("value=[" + value + "]");
-
-                                                        vi.info.clear();
-                                                        vi.value.clear();
-                                                }  
-                                        }
-                                         
-                                }   
+                                    l_kv.push_back(kv);
+                                }  
+							}
                         }
                 }
         } 
 
         if(!name.empty())
         {
-                configs[name] = config;        
+                conf.key = name;
+				conf.value = l_kv;
+				configs.push_back(conf);       
         }
         LOG("-----------");
         return true;
@@ -170,24 +180,23 @@ bool tConfigFile::SaveToFile()
 		            return false;
 		} 
 
-        map<string,map<string,ValueInfo> >::iterator itr;
-        for(itr=configs.begin();itr!=configs.end();itr++)
+        auto itr = configs.begin();
+        for(;itr!=configs.end();itr++)
         {
-                ofs << endl << "[" << itr->first << "]" << endl; 
-                LOG("[" + itr->first + "]"); 
-                map<string,ValueInfo>::iterator itr1;
-                for(itr1=itr->second.begin();itr1!=itr->second.end();itr1++)
-                {
-                        if(!itr1->second.info.empty())
-                        {
-                                for(unsigned int i=0;i<itr1->second.info.size();i++)
-                                {
-                                        ofs << "#" << itr1->second.info[i] << endl; 
-                                        LOG(itr1->second.info[i]);
-                                }                      
-                        }
-                        ofs << itr1->first << "=" << itr1->second.value << endl;  
-                        LOG(itr1->first + "=" + itr1->second.value);           
+                ofs << endl << "[" << itr->key << "]" << endl; 
+                LOG("[" + itr->key + "]"); 
+                auto itr1=itr->value.begin();
+                for(;itr1!=itr->value.end();itr1++)
+                {      
+                		if(itr1->value.empty())
+                		{
+                			ofs << itr1->key << endl;  
+                		}
+						else
+						{
+                        	ofs << itr1->key << "=" << itr1->value << endl;  
+						}
+                        LOG(itr1->key + "=" + itr1->value);           
                 }
 
         }
@@ -195,270 +204,122 @@ bool tConfigFile::SaveToFile()
         return true;
 }
 
-
 /*
-Ã»ÓĞÔò´´½¨,ÓĞÔòÌæ»»
-[config_name]
-#info[0]
-#info[.]
-#info[n]
-key=value
-*/
-bool tConfigFile::set(string config_name,string key,string value,vector<string> &info)
-{
-        if(config_name.empty() || key.empty())
-        {
-                return false;
-        }
-		
-		if(configs.empty())
-		{
-			ValueInfo vi; 
-            vi.info = info;
-            vi.value = value;  
-            map<string,ValueInfo> block;
-            block[key] = vi;
-            configs[config_name]  = block;
-			file_change = true;
-			return true;
-		}
-		
-        map<string,map<string,ValueInfo> >::iterator itr =  configs.find(config_name);
-        if(itr==configs.end())
-        {
-                ValueInfo vi; 
-                vi.info = info;
-                vi.value = value;  
-                map<string,ValueInfo> block;
-                block[key] = vi;
-                configs[config_name]  = block;
-        }
-        else
-        {    
-                ValueInfo vi;
-                vi.info = info;
-                vi.value = value;
-
-				if(itr->second.empty())
-				{
-					itr->second[key] = vi; 
-				}
-				else
-				{
-	                map<string,ValueInfo>::iterator itr1=itr->second.find(key);
-	                if(itr1==itr->second.end())
-	                {
-	                        itr->second[key] = vi; 
-	                }
-	                else
-	                {
-	                        itr1->second = vi;    
-	                }
-				}
-        }  
-		file_change = true;
-		return true;
-}
-
-/*
-Ã»ÓĞÔò´´½¨,ÓĞÔòÌæ»»
+æ²¡æœ‰åˆ™åˆ›å»º,æœ‰åˆ™æ›¿æ¢
 [config_name]
 key=value
 */
 bool tConfigFile::set(string config_name,string key,string value)
 {
-        if(config_name.empty() || key.empty())
-        {
-                return false;
-        }
+	list<tCF_KeyValue> l_kv; 
+	tCF_KeyValue kv;
+	tCF_ConfKv	conf;
+	
 
-		if(configs.empty())
-		{
-			ValueInfo vi; 
-            vi.value = value;  
-            map<string,ValueInfo> block;
-            block[key] = vi;
-            configs[config_name]  = block;
-			file_change = true;
-			return true;
-		}
-		
-        map<string,map<string,ValueInfo> >::iterator itr =  configs.find(config_name);
-        if(itr==configs.end())
-        {
-                ValueInfo vi; 
-                vi.value = value;  
-                map<string,ValueInfo> block;
-                block[key] = vi;
-                configs[config_name]  = block;
-        }
-        else
-        {    
-                ValueInfo vi;
-                vi.value = value;
-				if(itr->second.empty())
-				{
-					itr->second[key] = vi; 
-				}
-				else
-				{
-	                map<string,ValueInfo>::iterator itr1=itr->second.find(key);
-	                if(itr1==itr->second.end())
-	                {
-	                        itr->second[key] = vi; 
-	                }
-	                else
-	                {
-	                        itr1->second.value = value;     
-	                }
-				}
-        }  
-		file_change = true;
-		return true;
-}
-
-/*
-&cc : ¶ÔÓ¦config
-*/
-bool tConfigFile::findConfig(string config_name,list<tCF_KeyValue>	  &cc)
-{
-		map<string,ValueInfo> empty;
-		if(config_name.empty())
-		{
-				return false;
-		}
-		
-		if(configs.empty())
-			return false;
-		
-		map<string,map<string,ValueInfo> >::iterator itr_config = configs.find(config_name);
-		if(itr_config==configs.end())
-		{
-				return false;
-		}
-
-		map<string,ValueInfo>::iterator  it=itr_config->second.begin();
-		for(;it!=itr_config->second.end();it++)
-		{
-			tCF_KeyValue kv;
-			kv.key = it->first;
-			kv.value = it->second.value;
-			cc.push_back(kv);
-		}
-		return true;
-}
-
-/*
-tongguo   key-value ÕÒµ½Ò»¸öconfig,Ä¿Ç°ÕÒµ½µÚÒ»¸ö¾ÍÍË³ö,ºóĞø»á°Ñ·ûºÏµÄ¶¼ÕÒ³ö
-*/
-bool tConfigFile::findConfigByKeyValue(string key,string value,string &config_name)
-{
-    if(key.empty())
+    if(config_name.empty() || key.empty())
     {
             return false;
-    }	
+    }
 
-		
-    map<string,map<string,ValueInfo> >::iterator itr =  configs.begin();
 
-	for(;itr != configs.end();itr++)
+	auto itr = configs.begin();
+	for(;itr!=configs.end();itr++)
 	{
-		 map<string,ValueInfo>::iterator itr1=itr->second.find(key);
-		 if(itr1 != itr->second.end())
-		 {
-			if(itr1->second.value == value)
-			{
-				config_name = itr->first;
-				return true;
-			}
-		 }
+		if(itr->key == config_name)
+		{
+			break;
+		}
 	}
-	return false;	
+
+	if(itr==configs.end())
+	{
+		kv.key=key;
+		kv.value=value;
+		l_kv.push_back(kv);
+
+		conf.key = config_name;
+		conf.value = l_kv;
+
+		configs.push_back(conf);
+		file_change = true;
+		return true;
+	}
+
+	
+	auto itr1=itr->value.begin();
+    for(;itr1!=itr->value.end();itr1++)
+    {
+		if(itr1->key == key)
+		{
+			break;
+		}
+	}
+
+	if(itr1==itr->value.end())
+	{
+		kv.key=key;
+		kv.value=value;
+
+		itr->value.push_back(kv);
+		file_change = true;
+		return true;
+	}
+
+
+	itr1->value = value;
+
+	file_change = true;
+	return true;
 }
 
-
 /*
-&itr_key:¶ÔÓ¦configÖĞ¶ÔÓ¦key-value µü´úÆ÷
-*/
-bool tConfigFile::findConfigKey(string block_name,string key,map<string,ValueInfo>::iterator &itr_key)
-{
-       ValueInfo empty;
-        if(configs.empty())
-			return false;
-        map<string,map<string,ValueInfo> >::iterator itr = configs.find(block_name);
-        if(itr==configs.end())
-        {
-                return false;
-        }
-		if(itr->second.empty())
-			return false;
-        itr_key=itr->second.find(key);
-        if(itr_key==itr->second.end())
-        {
-                return false;
-        }
-        return true;;
-}
-
-/*
-²éÕÒmapÖĞµÄÈçÏÂ½á¹¹,·µ»Øvalue
+æŸ¥æ‰¾mapä¸­çš„å¦‚ä¸‹ç»“æ„,è¿”å›value
 [config_name]
 key=value
 */
 bool tConfigFile::get(string config_name,string key,string &value)
 {
-       ValueInfo empty;
-		if(configs.empty())
-			return false;
-		
-        map<string,map<string,ValueInfo> >::iterator itr = configs.find(config_name);
-        if(itr==configs.end())
-        {
-        	return false;
-        }
-		if(itr->second.empty())
-			return false;
-		
-        map<string,ValueInfo>::iterator itr_key=itr->second.find(key);
-        if(itr_key==itr->second.end())
-        {
-                return false;
-        }
-		value = itr_key->second.value;
-        return true;
-}
-
-
-/*
-²éÕÒmapÖĞµÄÈçÏÂ½á¹¹,·µ»Øinfo
-[config_name]
-#
-key=value
-*/
-bool tConfigFile::get(string config_name,string key,string value,vector<string> &info)
-{
-	ValueInfo empty;
-
-	if(configs.empty())
-		return false;
+ 	list<tCF_KeyValue> l_kv; 
+	tCF_KeyValue kv;
+	tCF_ConfKv	conf;
 	
-	map<string,map<string,ValueInfo> >::iterator itr = configs.find(config_name);
+
+    if(config_name.empty() || key.empty())
+    {
+            return false;
+    }  
+
+
+	auto itr = configs.begin();
+	for(;itr!=configs.end();itr++)
+	{
+		if(itr->key == config_name)
+		{
+			break;
+		}
+	}
 	if(itr==configs.end())
 	{
-	        return false;
+		return false;
 	}
 
-	if(itr->second.empty())
-		return false;
-	
-	map<string,ValueInfo>::iterator itr_key=itr->second.find(key);
-	if(itr_key==itr->second.end())
-	{
-	        return false;
+
+	auto itr1=itr->value.begin();
+    for(;itr1!=itr->value.end();itr1++)
+    {
+		if(itr1->key == key)
+		{
+			break;
+		}
 	}
-	value = itr_key->second.value;
-	info = itr_key->second.info;
-	return true;;	
+
+	if(itr1==itr->value.end())
+	{
+		return false;
+	}
+
+	value = itr1->value;
+	return true;
 }
 
 
@@ -467,11 +328,19 @@ bool tConfigFile::del(string config_name)
 	if(configs.empty())
 		return false;
 
-	map<string,map<string,ValueInfo> >::iterator itr = configs.find(config_name);
+	auto itr = configs.begin();
+	for(;itr!=configs.end();itr++)
+	{
+		if(itr->key == config_name)
+		{
+			break;
+		}
+	}
 	if(itr==configs.end())
 	{
-	        return false;
+		return false;
 	}
+
 
 	configs.erase(itr);
 	return true;
@@ -481,65 +350,62 @@ bool tConfigFile::del(string config_name,string key)
 	if(configs.empty())
 		return false;
 
-	map<string,map<string,ValueInfo> >::iterator itr = configs.find(config_name);
+	auto itr = configs.begin();
+	for(;itr!=configs.end();itr++)
+	{
+		if(itr->key == config_name)
+		{
+			break;
+		}
+	}
 	if(itr==configs.end())
 	{
-	        return false;
-	}
-
-	if(itr->second.empty())
 		return false;
-	
-	map<string,ValueInfo>::iterator itr_key=itr->second.find(key);
-	if(itr_key==itr->second.end())
-	{
-	        return false;
 	}
 
-	itr->second.erase(itr_key);
+	auto itr1=itr->value.begin();
+    for(;itr1!=itr->value.end();itr1++)
+    {
+		if(itr1->key == key)
+		{
+			break;
+		}
+	}
+
+	if(itr1==itr->value.end())
+	{
+		return false;
+	}
+
+
+	itr->value.erase(itr1);
 	return true;
 }
 
 
 void tConfigFile::fileShow()
 {
-        map<string,map<string,ValueInfo> >::iterator itr=configs.begin();
-        for(;itr!=configs.end();itr++)
-        {
-            configShow(itr);
-        }
-}
-
-void tConfigFile::configShow(map<string,map<string,ValueInfo> >::iterator itr_config)
-{
-		cout << "["<<itr_config->first << "]"<< endl;
-		map<string,ValueInfo>::iterator itr_key;
-		for(itr_key=itr_config->second.begin();itr_key!=itr_config->second.end();itr_key++)
+        auto itr = configs.begin();
+		
+		for(;itr!=configs.end();itr++)
 		{
-			keyShow(itr_key);
+			configShow(*itr);
 		}
 }
 
-void tConfigFile::keyShow(map<string,ValueInfo>::iterator &itr_key)
+void tConfigFile::configShow(tCF_ConfKv &conf)
 {
-	
-		for(unsigned int i=0;i<itr_key->second.info.size();i++)
+		cout << "["<<conf.key << "]"<< endl;
+		auto itr = conf.value.begin();
+		for(;itr!=conf.value.end();itr++)
 		{
-			cout << "#" <<itr_key->second.info[i] << endl;
+			keyShow(*itr);
 		}
-		cout <<itr_key->first << " = " <<itr_key->second.value << endl;	
 }
 
-
-
-void testConfigDemo()
-{
-	tConfigFile cc("new-config.txt");
-	cc.set("config1","key1","abc");
-
-	string value1;
-	cc.get("config1","key1",value1);
-	cout << "value1=" << value1 << endl;
+void tConfigFile::keyShow(tCF_KeyValue &kv)
+{	
+		cout <<kv.key << " = " <<kv.value << endl;	
 }
 
 

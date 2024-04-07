@@ -47,6 +47,6 @@ clean:
 	rm -f $(BUILD)/*
 	
 install:
-        install -d ${DESTDIR}${bindir}  ${DESTDIR}${configdir}
-        install -m 755 ${bin} ${DESTDIR}${bindir}
-		install -m 655 socks5.conf ${DESTDIR}${configdir}
+	install -d ${DESTDIR}${bindir}  ${DESTDIR}${configdir}
+	install -m 755 ${bin} ${DESTDIR}${bindir}
+	install -m 655 socks5.conf ${DESTDIR}${configdir}
